@@ -299,7 +299,7 @@ class SolidityCompiler(CompilerAPI):
                     logger.debug(f"Unable to find dependency '{package_id}'.")
 
                 else:
-                    manifest = PackageManifest.model_validate_json(cached_manifest_file.read_text())
+                    manifest = PackageManifest.model_validate_json(cached_manifest_file.read_text(encoding="utf-8"))
                     self._add_dependencies(manifest, sub_contracts_cache, builder)
 
         # Update cache and hash
@@ -327,7 +327,7 @@ class SolidityCompiler(CompilerAPI):
             cached_source.parent.mkdir(parents=True, exist_ok=True)
             if src.content:
                 cached_source.touch()
-                cached_source.write_text(str(src.content))
+                cached_source.write_text(str(src.content), encoding="utf-8")
 
         # Add dependency remapping that may be needed.
         for compiler in manifest.compilers or []:
@@ -396,7 +396,7 @@ class SolidityCompiler(CompilerAPI):
 
             dependency_path = dependency_root_path / version / f"{dependency_name}.json"
             if dependency_path.is_file():
-                sub_manifest = PackageManifest.model_validate_json(dependency_path.read_text())
+                sub_manifest = PackageManifest.model_validate_json(dependency_path.read_text(encoding="utf-8"))
                 dep_id = Path(dependency_name) / version
                 if dep_id not in builder.dependencies_added:
                     builder.dependencies_added.add(dep_id)
@@ -497,7 +497,7 @@ class SolidityCompiler(CompilerAPI):
                 raise CompilerError(f"Missing sources: '{missing_src_str}'.")
 
             sources = {
-                x: {"content": (base_path / x).read_text()}
+                x: {"content": (base_path / x).read_text(encoding="utf-8")}
                 for x in vers_settings["outputSelection"]
             }
 
@@ -1002,7 +1002,7 @@ class SolidityCompiler(CompilerAPI):
             source += f"// File: {raw_import_name}\n"
         else:
             source += f"// File: {path.name}\n"
-        source += path.read_text() + "\n"
+        source += path.read_text(encoding="utf-8") + "\n"
         return source
 
     def flatten_contract(self, path: Path, **kwargs) -> Content:
@@ -1012,7 +1012,7 @@ class SolidityCompiler(CompilerAPI):
         source = remove_imports(source)
         source = process_licenses(source)
         source = remove_version_pragmas(source)
-        pragma = get_first_version_pragma(path.read_text())
+        pragma = get_first_version_pragma(path.read_text(encoding="utf-8"))
         source = "\n".join([pragma, source])
         lines = source.splitlines()
         line_dict = {i + 1: line for i, line in enumerate(lines)}

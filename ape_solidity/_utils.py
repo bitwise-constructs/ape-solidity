@@ -115,7 +115,7 @@ def get_import_lines(source_paths: Set[Path]) -> Dict[Path, List[str]]:
         if not filepath.is_file():
             continue
 
-        source_lines = filepath.read_text().splitlines()
+        source_lines = filepath.read_text(encoding="utf-8").splitlines()
         num_lines = len(source_lines)
         for line_number, ln in enumerate(source_lines):
             if not ln.startswith("import"):
@@ -153,7 +153,7 @@ def get_pragma_spec_from_path(source_file_path: Union[Path, str]) -> Optional[Sp
     if not path.is_file():
         return None
 
-    source_str = path.read_text()
+    source_str = path.read_text(encoding="utf-8")
     return get_pragma_spec_from_str(source_str)
 
 

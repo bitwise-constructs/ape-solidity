@@ -613,7 +613,7 @@ def test_flatten(project, compiler, data_folder, caplog):
     flattened_source = compiler.flatten_contract(source_path)
     flattened_source_path = data_folder / "ImportingLessConstrainedVersionFlat.sol"
     actual = str(flattened_source)
-    expected = str(flattened_source_path.read_text())
+    expected = str(flattened_source_path.read_text(encoding="utf-8"))
     assert actual == expected
 
 
