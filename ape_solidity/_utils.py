@@ -3,14 +3,17 @@ import re
 from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from ape.exceptions import CompilerError
 from ape.utils import pragma_str_to_specifier_set
-from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 from solcx.install import get_executable
 from solcx.wrapper import get_solc_version as get_solc_version_from_binary
+
+if TYPE_CHECKING:
+    from packaging.specifiers import SpecifierSet
+
 
 OUTPUT_SELECTION = [
     "abi",
@@ -30,35 +33,39 @@ class Extension(Enum):
 def get_import_lines(source_paths: Iterable[Path]) -> dict[Path, list[str]]:
     imports_dict: dict[Path, list[str]] = {}
     for filepath in source_paths:
-        import_set = set()
-        if not filepath or not filepath.is_file():
-            continue
-
-        source_lines = filepath.read_text(encoding="utf-8").splitlines()
-        num_lines = len(source_lines)
-        for line_number, ln in enumerate(source_lines):
-            if not ln.startswith("import"):
-                continue
-
-            import_str = ln
-            second_line_number = line_number
-            while ";" not in import_str:
-                second_line_number += 1
-                if second_line_number >= num_lines:
-                    raise CompilerError("Import statement missing semicolon.")
-
-                next_line = source_lines[second_line_number]
-                import_str += f" {next_line.strip()}"
-
-            import_set.add(import_str)
-            line_number += 1
-
-        imports_dict[filepath] = list(import_set)
+        imports_dict[filepath] = get_single_import_lines(filepath)
 
     return imports_dict
 
 
-def get_pragma_spec_from_path(source_file_path: Union[Path, str]) -> Optional[SpecifierSet]:
+def get_single_import_lines(source_path: Path) -> list[str]:
+    import_set = set()
+    if not source_path.is_file():
+        return []
+
+    source_lines = source_path.read_text(encoding="utf8").splitlines()
+    num_lines = len(source_lines)
+    for line_number, ln in enumerate(source_lines):
+        if not ln.startswith("import"):
+            continue
+
+        import_str = ln
+        second_line_number = line_number
+        while ";" not in import_str:
+            second_line_number += 1
+            if second_line_number >= num_lines:
+                raise CompilerError("Import statement missing semicolon.")
+
+            next_line = source_lines[second_line_number]
+            import_str += f" {next_line.strip()}"
+
+        import_set.add(import_str)
+        line_number += 1
+
+    return list(import_set)
+
+
+def get_pragma_spec_from_path(source_file_path: Union[Path, str]) -> Optional["SpecifierSet"]:
     """
     Extracts pragma information from Solidity source code.
 
@@ -72,11 +79,11 @@ def get_pragma_spec_from_path(source_file_path: Union[Path, str]) -> Optional[Sp
     if not path.is_file():
         return None
 
-    source_str = path.read_text(encoding="utf-8")
+    source_str = path.read_text(encoding="utf8")
     return get_pragma_spec_from_str(source_str)
 
 
-def get_pragma_spec_from_str(source_str: str) -> Optional[SpecifierSet]:
+def get_pragma_spec_from_str(source_str: str) -> Optional["SpecifierSet"]:
     if not (
         pragma_match := next(
             re.finditer(r"(?:\n|^)\s*pragma\s*solidity\s*([^;\n]*)", source_str), None
@@ -102,11 +109,11 @@ def add_commit_hash(version: Union[str, Version]) -> Version:
     return get_solc_version_from_binary(solc, with_commit_hash=True)
 
 
-def get_versions_can_use(pragma_spec: SpecifierSet, options: Iterable[Version]) -> list[Version]:
+def get_versions_can_use(pragma_spec: "SpecifierSet", options: Iterable[Version]) -> list[Version]:
     return sorted(list(pragma_spec.filter(options)), reverse=True)
 
 
-def select_version(pragma_spec: SpecifierSet, options: Iterable[Version]) -> Optional[Version]:
+def select_version(pragma_spec: "SpecifierSet", options: Iterable[Version]) -> Optional[Version]:
     choices = get_versions_can_use(pragma_spec, options)
     return choices[0] if choices else None
 

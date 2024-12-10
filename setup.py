@@ -12,22 +12,23 @@ extras_require = {
         "pytest-benchmark",  # For performance tests
     ],
     "lint": [
-        "black>=24.4.2,<25",  # Auto-formatter and linter
-        "mypy>=1.10.0,<2",  # Static type analyzer
+        "black>=24.10.0,<25",  # Auto-formatter and linter
+        "mypy>=1.13.0,<2",  # Static type analyzer
         "types-requests",  # Needed for mypy type shed
         "types-setuptools",  # Needed for mypy type shed
-        "types-pkg-resources",  # Needed for type checking tests
-        "flake8>=7.0.0,<8",  # Style linter
+        "flake8>=7.1.1,<8",  # Style linter
+        "flake8-pydantic",  # For detecting issues with Pydantic models
+        "flake8-type-checking",  # Detect imports to move in/out of type-checking blocks
         "isort>=5.13.2,<6",  # Import sorting linter
-        "mdformat>=0.7.17",  # Auto-formatter for markdown
+        "mdformat>=0.7.19",  # Auto-formatter for markdown
         "mdformat-gfm>=0.3.5",  # Needed for formatting GitHub-flavored markdown
         "mdformat-frontmatter>=0.4.1",  # Needed for frontmatters-style headers in issue templates
-        "mdformat-pyproject>=0.0.1",  # Allows configuring in pyproject.toml
+        "mdformat-pyproject>=0.0.2",  # Allows configuring in pyproject.toml
     ],
     "doc": [
         "Sphinx>=6.1.3,<7",  # Documentation generator
         "sphinx_rtd_theme>=1.2.0,<2",  # Readthedocs.org theme
-        "towncrier>=19.2.0, <20",  # Generate release notes
+        "towncrier>=19.2.0,<20",  # Generate release notes
     ],
     "release": [  # `release` GitHub Action job uses this
         "setuptools",  # Installation tool
@@ -69,7 +70,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "py-solc-x>=2.0.2,<3",
-        "eth-ape>=0.8.1,<0.9",
+        "eth-ape>=0.8.4,<0.9",
         "ethpm-types",  # Use the version ape requires
         "eth-pydantic-types",  # Use the version ape requires
         "packaging",  # Use the version ape requires
@@ -78,6 +79,11 @@ setup(
     python_requires=">=3.9,<4",
     extras_require=extras_require,
     py_modules=["ape_solidity"],
+    entry_points={
+        "ape_cli_subcommands": [
+            "ape_solidity=ape_solidity._cli:cli",
+        ],
+    },
     license="Apache-2.0",
     zip_safe=False,
     keywords="ethereum",

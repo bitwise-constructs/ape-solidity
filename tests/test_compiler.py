@@ -4,7 +4,7 @@ import pytest
 import solcx
 from ape import Project, reverts
 from ape.exceptions import CompilerError
-from ape.logging import LogLevel
+from ape.utils import get_full_extension
 from ethpm_types import ContractType
 from packaging.version import Version
 
@@ -67,6 +67,9 @@ def test_get_import_remapping_handles_config(project, compiler):
     # Show other dependency-deduced remappings still work.
     assert actual["@browniedependency"] == "contracts/.cache/browniedependency/local"
 
+    # Clear remapping, to return to regular config values.
+    compiler.__dict__.pop("_import_remapping_cache", None)
+
 
 def test_get_imports(project, compiler):
     source_id = "contracts/ImportSourceWithEqualSignVersion.sol"
@@ -101,7 +104,7 @@ def test_get_imports_indirect(project, compiler):
     assert source_id in actual
     actual_str = ", ".join(list(actual[source_id]))
     for ex in expected:
-        assert ex in actual[source_id], f"{ex} not in {actual_str}"
+        assert ex in actual[source_id], f"{ex} WAS NOT found in {actual_str}"
 
 
 def test_get_imports_complex(project, compiler):
@@ -121,10 +124,13 @@ def test_get_imports_complex(project, compiler):
             "contracts/.cache/dependency/local/contracts/Dependency.sol",
             "contracts/.cache/dependencyofdependency/local/contracts/DependencyOfDependency.sol",
             "contracts/.cache/noncompilingdependency/local/contracts/CompilingContract.sol",
+            "contracts/.cache/noncompilingdependency/local/contracts/subdir/SubCompilingContract.sol",  # noqa: E501
             "contracts/.cache/safe/1.3.0/contracts/common/Enum.sol",
             "contracts/CompilesOnce.sol",
             "contracts/MissingPragma.sol",
             "contracts/NumerousDefinitions.sol",
+            "contracts/Source.extra.ext.sol",
+            "contracts/safe/ThisIsNotGnosisSafe.sol",
             "contracts/subfolder/Relativecontract.sol",
         ],
         "contracts/MissingPragma.sol": [],
@@ -144,14 +150,21 @@ def test_get_imports_dependencies(project, compiler):
     path = project.sources.lookup(source_id)
     import_ls = compiler.get_imports((path,), project=project)
     actual = import_ls[source_id]
-    token_path = "contracts/.cache/openzeppelin/4.5.0/contracts/token"
+
+    # NOTE: Both Yearn-vaults master branch and yearn-vaults 0.4.5
+    #   use OpenZeppelin 4.7.1. However, the root project for these
+    #   tests uses OpenZeppelin 4.5.0. This proves we are handling
+    #   dependencies-of-dependencies correctly.
+
+    token_path = "contracts/.cache/openzeppelin/4.7.1/contracts/token"
     expected = [
         f"{token_path}/ERC20/ERC20.sol",
         f"{token_path}/ERC20/IERC20.sol",
         f"{token_path}/ERC20/extensions/IERC20Metadata.sol",
+        f"{token_path}/ERC20/extensions/draft-IERC20Permit.sol",
         f"{token_path}/ERC20/utils/SafeERC20.sol",
-        "contracts/.cache/openzeppelin/4.5.0/contracts/utils/Address.sol",
-        "contracts/.cache/openzeppelin/4.5.0/contracts/utils/Context.sol",
+        "contracts/.cache/openzeppelin/4.7.1/contracts/utils/Address.sol",
+        "contracts/.cache/openzeppelin/4.7.1/contracts/utils/Context.sol",
         "contracts/.cache/vault/v0.4.5/contracts/BaseStrategy.sol",
         "contracts/.cache/vaultmain/master/contracts/BaseStrategy.sol",
     ]
@@ -239,20 +252,43 @@ def test_get_version_map_dependencies(project, compiler):
     actual = compiler.get_version_map(paths, project=project)
 
     fail_msg = f"versions: {', '.join([str(x) for x in actual])}"
-    assert len(actual) == 2, fail_msg
+    actual_len = len(actual)
+
+    # Expecting one old version for ImportOlderDependency and one version for Yearn stuff.
+    expected_len = 2
+
+    if actual_len > expected_len:
+        # Weird anomaly in CI/CD tests sometimes (at least at the time of write).
+        # Including additional debug information.
+        alt_map: dict = {}
+        for version, src_ids in actual.items():
+            for src_id in src_ids:
+                if src_id in alt_map:
+                    other_version = alt_map[src_id]
+                    versions_str = ", ".join([str(other_version), str(version)])
+                    pytest.fail(f"{src_id} in multiple version '{versions_str}'")
+                else:
+                    alt_map[src_id] = version
+
+        # No duplicated versions found but still have unexpected extras.
+        pytest.fail(f"Unexpected number of versions. {fail_msg}")
+
+    elif actual_len < expected_len:
+        pytest.fail(fail_msg)
 
     versions = sorted(list(actual.keys()))
     older = versions[0]  # Via ImportOlderDependency
     latest = versions[1]  # via UseYearn
 
-    oz_token = "contracts/.cache/openzeppelin/4.5.0/contracts/token"
+    oz_token = "contracts/.cache/openzeppelin/4.7.1/contracts/token"
     expected_latest_source_ids = [
         f"{oz_token}/ERC20/ERC20.sol",
         f"{oz_token}/ERC20/IERC20.sol",
         f"{oz_token}/ERC20/extensions/IERC20Metadata.sol",
+        f"{oz_token}/ERC20/extensions/draft-IERC20Permit.sol",
         f"{oz_token}/ERC20/utils/SafeERC20.sol",
-        "contracts/.cache/openzeppelin/4.5.0/contracts/utils/Address.sol",
-        "contracts/.cache/openzeppelin/4.5.0/contracts/utils/Context.sol",
+        "contracts/.cache/openzeppelin/4.7.1/contracts/utils/Address.sol",
+        "contracts/.cache/openzeppelin/4.7.1/contracts/utils/Context.sol",
         "contracts/.cache/vault/v0.4.5/contracts/BaseStrategy.sol",
         "contracts/.cache/vaultmain/master/contracts/BaseStrategy.sol",
         source_id,
@@ -335,6 +371,10 @@ def test_get_version_map_full_project(project, compiler):
 
 def test_get_compiler_settings(project, compiler):
     path = project.sources.lookup("contracts/Imports.sol")
+
+    # Set this setting using an adhoc approach.
+    compiler.compiler_settings["optimization_runs"] = 190
+
     actual = compiler.get_compiler_settings((path,), project=project)
     # No reason (when alone) to not use
     assert len(actual) == 1
@@ -344,16 +384,18 @@ def test_get_compiler_settings(project, compiler):
     assert version > Version("0.8.12+commit.f00d7308")
 
     settings = actual[version]
-    assert settings["optimizer"] == {"enabled": True, "runs": 200}
+    assert settings["optimizer"] == {"enabled": True, "runs": 190}
 
     # NOTE: These should be sorted!
-    assert settings["remappings"] == [
+    expected_remapping = [
         "@browniedependency=contracts/.cache/browniedependency/local",
         "@dependency=contracts/.cache/dependency/local",
         "@dependencyofdependency=contracts/.cache/dependencyofdependency/local",
-        "@noncompilingdependency=contracts/.cache/noncompilingdependency/local",
+        # This remapping below was auto-corrected because imports were excluding contracts/ suffix.
+        "@noncompilingdependency=contracts/.cache/noncompilingdependency/local/contracts",
         "@safe=contracts/.cache/safe/1.3.0",
     ]
+    assert settings["remappings"] == expected_remapping
 
     # Set in config.
     assert settings["evmVersion"] == "constantinople"
@@ -365,11 +407,14 @@ def test_get_compiler_settings(project, compiler):
         "contracts/.cache/dependency/local/contracts/Dependency.sol",
         "contracts/.cache/dependencyofdependency/local/contracts/DependencyOfDependency.sol",
         "contracts/.cache/noncompilingdependency/local/contracts/CompilingContract.sol",
+        "contracts/.cache/noncompilingdependency/local/contracts/subdir/SubCompilingContract.sol",
         "contracts/.cache/safe/1.3.0/contracts/common/Enum.sol",
         "contracts/CompilesOnce.sol",
         "contracts/Imports.sol",
         "contracts/MissingPragma.sol",
         "contracts/NumerousDefinitions.sol",
+        "contracts/Source.extra.ext.sol",
+        "contracts/safe/ThisIsNotGnosisSafe.sol",
         "contracts/subfolder/Relativecontract.sol",
     ]
     assert actual_files == expected_files
@@ -447,8 +492,15 @@ def test_compile_performance(benchmark, compiler, project):
         args=((path,),),
         kwargs={"project": project},
         rounds=1,
+        warmup_rounds=1,
     )
     assert len(result) > 0
+
+    # Currently seeing '~0.08; on macOS locally.
+    # Was seeing '~0.68' before https://github.com/ApeWorX/ape-solidity/pull/151
+    threshold = 0.2
+
+    assert benchmark.stats["median"] < threshold
 
 
 def test_compile_multiple_definitions_in_source(project, compiler):
@@ -590,7 +642,7 @@ def test_compile_project(project, compiler):
     """
     Simple test showing the full project indeed compiles.
     """
-    paths = [x for x in project.sources.paths if x.suffix == ".sol"]
+    paths = [x for x in project.sources.paths if get_full_extension(x) == ".sol"]
     actual = [c for c in compiler.compile(paths, project=project)]
     assert len(actual) > 0
 
@@ -603,7 +655,7 @@ def test_compile_outputs_compiler_data_to_manifest(project, compiler):
     actual = project.manifest.compilers[0]
     assert actual.name == "solidity"
     assert "CompilesOnce" in actual.contractTypes
-    assert actual.version == "0.8.26+commit.8a97fa7a"
+    assert actual.version == "0.8.28+commit.7893614a"
     # Compiling again should not add the same compiler again.
     _ = [c for c in compiler.compile((path,), project=project)]
     length_again = len(project.manifest.compilers or [])
@@ -651,23 +703,33 @@ def test_enrich_error_when_builtin(project, owner, connection):
         contract.checkIndexOutOfBounds(sender=owner)
 
 
-def test_flatten(project, compiler, caplog):
-    path = project.sources.lookup("contracts/Imports.sol")
-    with caplog.at_level(LogLevel.WARNING):
-        compiler.flatten_contract(path, project=project)
-        actual = caplog.messages[-1]
-        expected = (
-            "Conflicting licenses found: 'LGPL-3.0-only, MIT'. "
-            "Using the root file's license 'MIT'."
-        )
-        assert actual == expected
+def test_flatten(mocker, project, compiler):
+    path = project.contracts_folder / "Imports.sol"
+    base_expected = Path(__file__).parent / "data"
 
-    path = project.sources.lookup("contracts/ImportingLessConstrainedVersion.sol")
-    flattened_source = compiler.flatten_contract(path, project=project)
-    flattened_source_path = (
-        Path(__file__).parent / "data" / "ImportingLessConstrainedVersionFlat.sol"
+    # NOTE: caplog for some reason is inconsistent and causes flakey tests.
+    #  Thus, we are using our own "logger_spy".
+    logger_spy = mocker.patch("ape_solidity.compiler.logger")
+
+    res = compiler.flatten_contract(path, project=project)
+    call_args = logger_spy.warning.call_args
+    actual_logs = call_args[0] if call_args else ()
+    assert actual_logs, f"Missing warning logs from dup-licenses, res: {res}"
+    actual = actual_logs[-1]
+    # NOTE: MIT coming from Imports.sol and LGPL-3.0-only coming from
+    #   @safe/contracts/common/Enum.sol.
+    expected = (
+        "Conflicting licenses found: 'LGPL-3.0-only, MIT'. Using the root file's license 'MIT'."
     )
-    assert str(flattened_source) == str(flattened_source_path.read_text(encoding="utf-8"))
+    assert actual == expected
+
+    path = project.contracts_folder / "ImportingLessConstrainedVersion.sol"
+    flattened_source = compiler.flatten_contract(path, project=project)
+    flattened_source_path = base_expected / "ImportingLessConstrainedVersionFlat.sol"
+
+    actual = str(flattened_source)
+    expected = str(flattened_source_path.read_text(encoding="utf8"))
+    assert actual == expected
 
 
 def test_compile_code(project, compiler):
