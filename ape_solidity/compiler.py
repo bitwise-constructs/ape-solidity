@@ -180,7 +180,7 @@ class SolidityCompiler(CompilerAPI):
     @property
     def installed_versions(self) -> list[Version]:
         """
-        Returns a lis of installed version WITHOUT their
+        Returns a list of installed versions WITHOUT their
         commit hashes.
         """
         return get_installed_solc_versions()
