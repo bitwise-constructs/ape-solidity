@@ -208,7 +208,8 @@ class ImportStatementMetadata(ApeSolidityModel):
         valid_matches: list[tuple[str, str]] = []
         for check_remap_key, check_remap_value in import_remapping.items():
             # Match with a trailing slash to avoid partial matches.
-            if f"{check_remap_key}/" not in self.value:
+            key_to_check = check_remap_key if check_remap_key.endswith("/") else f"{check_remap_key}/"
+            if key_to_check not in self.value:
                 continue
 
             valid_matches.append((check_remap_key, check_remap_value))
